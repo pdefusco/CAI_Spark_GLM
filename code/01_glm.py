@@ -49,7 +49,7 @@ from pyspark.ml.feature import (
 from pyspark.ml.regression import GeneralizedLinearRegression
 from pyspark.ml.evaluation import RegressionEvaluator
 import cml.data_v1 as cmldata
-
+import time
 
 class FraudPoissonTrainer:
 
@@ -58,6 +58,29 @@ class FraudPoissonTrainer:
         self.username = username
         self.dbname = dbname
         self.connection_name = connection_name
+
+    ##########################################################################
+    # Timer Utility
+    ##########################################################################
+
+    def timer(self, name):
+        """
+        Context manager for timing code blocks
+        """
+
+        class TimerContext:
+
+            def __enter__(self_inner):
+                self_inner.start = time.time()
+                print(f"\n[TIMER START] {name}")
+                return self_inner
+
+            def __exit__(self_inner, exc_type, exc_val, exc_tb):
+                end = time.time()
+                duration = end - self_inner.start
+                print(f"[TIMER END] {name} -> {duration:.2f} seconds\n")
+
+        return TimerContext()
 
     ##########################################################################
     # Create Spark Session
@@ -310,48 +333,51 @@ class FraudPoissonTrainer:
 
     def run(self):
 
-        spark = self.createSparkConnection()
+        with self.timer("FULL GLM PIPELINE"):
 
-        df = self.loadData(spark)
+            spark = self.createSparkConnection()
 
-        print("Dataset Count")
-        print(df.count())
+            with self.timer("LOAD DATA"):
+                df = self.loadData(spark)
 
-        df.printSchema()
+                print("Dataset Count")
+                print(df.count())
 
-        df = self.prepareData(df)
+                df.printSchema()
 
-        ######################################################################
-        # Train/Test Split
-        ######################################################################
+            with self.timer("PREPARE DATA"):
+                df = self.prepareData(df)
 
-        train_df, test_df = df.randomSplit(
-            [0.8, 0.2],
-            seed=42
-        )
+            ######################################################################
+            # Train/Test Split
+            ######################################################################
 
-        print(f"Train Count: {train_df.count()}")
-        print(f"Test Count: {test_df.count()}")
+            train_df, test_df = df.randomSplit([0.8, 0.2], seed=42)
 
-        ######################################################################
-        # Build Pipeline
-        ######################################################################
+            print(f"Train Count: {train_df.count()}")
+            print(f"Test Count: {test_df.count()}")
 
-        pipeline = self.buildPipeline()
+            ######################################################################
+            # Build Pipeline
+            ######################################################################
 
-        ######################################################################
-        # Train Model
-        ######################################################################
+            pipeline = self.buildPipeline()
 
-        model = self.trainModel(pipeline, train_df)
+            ######################################################################
+            # TRAIN
+            ######################################################################
 
-        ######################################################################
-        # Evaluate
-        ######################################################################
+            with self.timer("MODEL TRAINING"):
+                model = self.trainModel(pipeline, train_df)
 
-        self.evaluateModel(model, test_df)
+            ######################################################################
+            # EVALUATE
+            ######################################################################
 
-        print("Poisson GLM Training Complete")
+            with self.timer("MODEL EVALUATION"):
+                self.evaluateModel(model, test_df)
+
+            print("Poisson GLM Training Complete")
 
 
 ##############################################################################
