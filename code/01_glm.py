@@ -303,20 +303,6 @@ class FraudPoissonTrainer:
         print(f"AIC: {glm_model.summary.aic}")
         print(f"Deviance: {glm_model.summary.deviance}")
 
-    ##########################################################################
-    # Save Model
-    ##########################################################################
-
-    def saveModel(self, model):
-
-        model_path = (
-            f"/home/cdsw/models/"
-            f"fraud_poisson_glm_{self.username}"
-        )
-
-        print(f"Saving model to: {model_path}")
-
-        model.write().overwrite().save(model_path)
 
     ##########################################################################
     # Run Training Pipeline
@@ -357,25 +343,13 @@ class FraudPoissonTrainer:
         # Train Model
         ######################################################################
 
-        model = self.trainModel(
-            pipeline,
-            train_df
-        )
+        model = self.trainModel(pipeline, train_df)
 
         ######################################################################
         # Evaluate
         ######################################################################
 
-        self.evaluateModel(
-            model,
-            test_df
-        )
-
-        ######################################################################
-        # Save Model
-        ######################################################################
-
-        self.saveModel(model)
+        self.evaluateModel(model, test_df)
 
         print("Poisson GLM Training Complete")
 
