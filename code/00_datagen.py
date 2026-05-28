@@ -254,6 +254,8 @@ class BankDataGen:
 
     def createDatabase(self, spark):
 
+        spark.sql(f"CREATE DATABASE IF NOT EXISTS {self.dbname}")
+
         print(f"SHOW DATABASES LIKE '{self.dbname}'")
         spark.sql(f"SHOW DATABASES LIKE '{self.dbname}'").show()
 
@@ -278,9 +280,7 @@ class BankDataGen:
 
         print(f"SHOW TABLES FROM '{self.dbname}'")
 
-        spark.sql(
-            f"SHOW TABLES FROM {self.dbname}"
-        ).show()
+        spark.sql(f"SHOW TABLES FROM {self.dbname}").show()
 
         print("SHOW ICEBERG METADATA")
 
