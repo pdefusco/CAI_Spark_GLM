@@ -1,0 +1,404 @@
+#****************************************************************************
+# (C) Cloudera, Inc. 2020-2026
+#  All rights reserved.
+#
+#  Applicable Open Source License: GNU Affero General Public License v3.0
+#
+#  NOTE: Cloudera open source products are modular software products
+#  made up of hundreds of individual components, each of which was
+#  individually copyrighted.  Each Cloudera open source product is a
+#  collective work under U.S. Copyright Law. Your license to use the
+#  collective work is as provided in your written agreement with
+#  Cloudera.  Used apart from the collective work, this file is
+#  licensed for your use pursuant to the open source license
+#  identified above.
+#
+#  This code is provided to you pursuant a written agreement with
+#  (i) Cloudera, Inc. or (ii) a third-party authorized to distribute
+#  this code. If you do not have a written agreement with Cloudera nor
+#  with an authorized and properly licensed third party, you do not
+#  have any rights to access nor to use this code.
+#
+#  Absent a written agreement with Cloudera, Inc. (“Cloudera”) to the
+#  contrary, A) CLOUDERA PROVIDES THIS CODE TO YOU WITHOUT WARRANTIES OF ANY
+#  KIND; (B) CLOUDERA DISCLAIMS ANY AND ALL EXPRESS AND IMPLIED
+#  WARRANTIES WITH RESPECT TO THIS CODE, INCLUDING BUT NOT LIMITED TO
+#  IMPLIED WARRANTIES OF TITLE, NON-INFRINGEMENT, MERCHANTABILITY AND
+#  FITNESS FOR A PARTICULAR PURPOSE; (C) CLOUDERA IS NOT LIABLE TO YOU,
+#  AND WILL NOT DEFEND, INDEMNIFY, NOR HOLD YOU HARMLESS FOR ANY CLAIMS
+#  ARISING FROM OR RELATED TO THE CODE; AND (D)WITH RESPECT TO YOUR EXERCISE
+#  OF ANY RIGHTS GRANTED TO YOU FOR THE CODE, CLOUDERA IS NOT LIABLE FOR ANY
+#  DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, PUNITIVE OR
+#  CONSEQUENTIAL DAMAGES INCLUDING, BUT NOT LIMITED TO, DAMAGES
+#  RELATED TO LOST REVENUE, LOST PROFITS, LOSS OF INCOME, LOSS OF
+#  BUSINESS ADVANTAGE OR UNAVAILABILITY, OR LOSS OR CORRUPTION OF
+#  DATA.
+#
+# #  Author(s): Paul de Fusco
+#***************************************************************************/
+
+import os
+from pyspark.sql import functions as F
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import (
+    VectorAssembler,
+    StandardScaler,
+    StringIndexer,
+    OneHotEncoder
+)
+from pyspark.ml.regression import GeneralizedLinearRegression
+from pyspark.ml.evaluation import RegressionEvaluator
+import cml.data_v1 as cmldata
+
+
+class FraudPoissonTrainer:
+
+    def __init__(self, username, dbname, connection_name):
+
+        self.username = username
+        self.dbname = dbname
+        self.connection_name = connection_name
+
+    ##########################################################################
+    # Create Spark Session
+    ##########################################################################
+
+    def createSparkConnection(self):
+
+        from pyspark import SparkContext
+
+        SparkContext.setSystemProperty('spark.executor.cores', '2')
+        SparkContext.setSystemProperty('spark.executor.memory', '4g')
+
+        conn = cmldata.get_connection(self.connection_name)
+        spark = conn.get_spark_session()
+
+        return spark
+
+    ##########################################################################
+    # Load Iceberg Dataset
+    ##########################################################################
+
+    def loadData(self, spark):
+
+        table_name = f"{self.dbname}.transactions_{self.username}"
+        print(f"Loading table: {table_name}")
+
+        return spark.read.format("iceberg").load(table_name)
+
+    ##########################################################################
+    # Data Preparation
+    ##########################################################################
+
+    def prepareData(self, df):
+
+        df = df.dropna()
+        df = df.withColumn("label", F.col("fraud_trx").cast("double"))
+        df = df.filter(F.col("label") >= 0)
+
+        return df
+
+    ##########################################################################
+    # Build ML Pipeline
+    ##########################################################################
+
+    def buildPipeline(self):
+
+        ######################################################################
+        # Numeric Features
+        ######################################################################
+
+        numeric_features = [
+
+            "age",
+            "credit_card_balance",
+            "bank_account_balance",
+            "mortgage_balance",
+            "sec_bank_account_balance",
+            "savings_account_balance",
+            "sec_savings_account_balance",
+            "total_est_nworth",
+            "primary_loan_balance",
+            "secondary_loan_balance",
+            "uni_loan_balance",
+            "longitude",
+            "latitude",
+            "transaction_amount",
+            "customer_score"
+
+        ]
+
+        ######################################################################
+        # Categorical Features
+        ######################################################################
+
+        categorical_features = [
+
+            "customer_segment",
+            "account_type",
+            "transaction_type",
+            "merchant_category",
+            "state",
+            "employment_status",
+            "device_type",
+            "payment_channel",
+            "risk_region",
+            "card_network"
+
+        ]
+
+        ######################################################################
+        # String Indexers
+        ######################################################################
+
+        indexers = [
+
+            StringIndexer(
+                inputCol=col,
+                outputCol=f"{col}_idx",
+                handleInvalid="keep"
+            )
+
+            for col in categorical_features
+
+        ]
+
+        ######################################################################
+        # One Hot Encoders
+        ######################################################################
+
+        encoders = [
+
+            OneHotEncoder(
+                inputCols=[f"{col}_idx"],
+                outputCols=[f"{col}_ohe"]
+            )
+
+            for col in categorical_features
+
+        ]
+
+        ######################################################################
+        # Encoded Feature Columns
+        ######################################################################
+
+        encoded_features = [
+            f"{col}_ohe"
+            for col in categorical_features
+        ]
+
+        ######################################################################
+        # Assemble Features
+        ######################################################################
+
+        assembler = VectorAssembler(
+            inputCols=numeric_features + encoded_features,
+            outputCol="raw_features"
+        )
+
+        ######################################################################
+        # Standard Scaler
+        ######################################################################
+
+        scaler = StandardScaler(
+            inputCol="raw_features",
+            outputCol="features",
+            withStd=True,
+            withMean=True
+        )
+
+        ######################################################################
+        # Poisson GLM
+        ######################################################################
+
+        glm = GeneralizedLinearRegression(
+            family="poisson",
+            link="log",
+            featuresCol="features",
+            labelCol="label",
+            predictionCol="prediction",
+            maxIter=25,
+            regParam=0.01,
+            tol=1e-6
+        )
+
+        ######################################################################
+        # Pipeline
+        ######################################################################
+
+        pipeline = Pipeline(
+            stages=[
+                *indexers,
+                *encoders,
+                assembler,
+                scaler,
+                glm
+            ]
+        )
+
+        return pipeline
+
+    ##########################################################################
+    # Train Model
+    ##########################################################################
+
+    def trainModel(self, pipeline, train_df):
+
+        return pipeline.fit(train_df)
+
+    ##########################################################################
+    # Evaluate Model
+    ##########################################################################
+
+    def evaluateModel(self, model, test_df):
+
+        predictions = model.transform(test_df)
+
+        print("Predictions Sample")
+
+        predictions.select(
+            "label",
+            "prediction"
+        ).show(20, truncate=False)
+
+        ######################################################################
+        # Regression Metrics
+        ######################################################################
+
+        rmse = RegressionEvaluator(
+            labelCol="label",
+            predictionCol="prediction",
+            metricName="rmse"
+        ).evaluate(predictions)
+
+        mae = RegressionEvaluator(
+            labelCol="label",
+            predictionCol="prediction",
+            metricName="mae"
+        ).evaluate(predictions)
+
+        r2 = RegressionEvaluator(
+            labelCol="label",
+            predictionCol="prediction",
+            metricName="r2"
+        ).evaluate(predictions)
+
+        print(f"RMSE: {rmse}")
+        print(f"MAE:  {mae}")
+        print(f"R2:   {r2}")
+
+        ######################################################################
+        # Inspect GLM Model
+        ######################################################################
+
+        glm_model = model.stages[-1]
+
+        print("\nModel Coefficients")
+        print(glm_model.coefficients)
+
+        print("\nIntercept")
+        print(glm_model.intercept)
+
+        print("\nModel Summary")
+        print(f"AIC: {glm_model.summary.aic}")
+        print(f"Deviance: {glm_model.summary.deviance}")
+
+    ##########################################################################
+    # Save Model
+    ##########################################################################
+
+    def saveModel(self, model):
+
+        model_path = (
+            f"/home/cdsw/models/"
+            f"fraud_poisson_glm_{self.username}"
+        )
+
+        print(f"Saving model to: {model_path}")
+
+        model.write().overwrite().save(model_path)
+
+    ##########################################################################
+    # Run Training Pipeline
+    ##########################################################################
+
+    def run(self):
+
+        spark = self.createSparkConnection()
+
+        df = self.loadData(spark)
+
+        print("Dataset Count")
+        print(df.count())
+
+        df.printSchema()
+
+        df = self.prepareData(df)
+
+        ######################################################################
+        # Train/Test Split
+        ######################################################################
+
+        train_df, test_df = df.randomSplit(
+            [0.8, 0.2],
+            seed=42
+        )
+
+        print(f"Train Count: {train_df.count()}")
+        print(f"Test Count: {test_df.count()}")
+
+        ######################################################################
+        # Build Pipeline
+        ######################################################################
+
+        pipeline = self.buildPipeline()
+
+        ######################################################################
+        # Train Model
+        ######################################################################
+
+        model = self.trainModel(
+            pipeline,
+            train_df
+        )
+
+        ######################################################################
+        # Evaluate
+        ######################################################################
+
+        self.evaluateModel(
+            model,
+            test_df
+        )
+
+        ######################################################################
+        # Save Model
+        ######################################################################
+
+        self.saveModel(model)
+
+        print("Poisson GLM Training Complete")
+
+
+##############################################################################
+# Main
+##############################################################################
+
+def main():
+
+    USERNAME = os.environ["PROJECT_OWNER"]
+    DBNAME = os.environ["DBNAME_PREFIX"]
+    CONNECTION_NAME = os.environ["SPARK_CONNECTION_NAME"]
+
+    trainer = FraudPoissonTrainer(
+        USERNAME,
+        DBNAME,
+        CONNECTION_NAME
+    )
+
+    trainer.run()
+
+
+if __name__ == "__main__":
+
+    main()
