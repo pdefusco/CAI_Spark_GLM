@@ -317,52 +317,53 @@ class FraudPoissonTrainer:
 
         EXPERIMENT_NAME = "02_glm"
         mlflow.set_experiment(EXPERIMENT_NAME)
+        with mlflow.start_run():
 
-        with self.timer("FULL GLM PIPELINE"):
+            with self.timer("FULL GLM PIPELINE"):
 
-            spark = self.createSparkConnection()
+                spark = self.createSparkConnection()
 
-            with self.timer("LOAD DATA"):
-                df = self.loadData(spark)
+                with self.timer("LOAD DATA"):
+                    df = self.loadData(spark)
 
-                print("Dataset Count")
-                print(df.count())
+                    print("Dataset Count")
+                    print(df.count())
 
-                df.printSchema()
+                    df.printSchema()
 
-            with self.timer("PREPARE DATA"):
-                df = self.prepareData(df)
+                with self.timer("PREPARE DATA"):
+                    df = self.prepareData(df)
 
-            ######################################################################
-            # Train/Test Split
-            ######################################################################
+                ######################################################################
+                # Train/Test Split
+                ######################################################################
 
-            train_df, test_df = df.randomSplit([0.8, 0.2], seed=42)
+                train_df, test_df = df.randomSplit([0.8, 0.2], seed=42)
 
-            print(f"Train Count: {train_df.count()}")
-            print(f"Test Count: {test_df.count()}")
+                print(f"Train Count: {train_df.count()}")
+                print(f"Test Count: {test_df.count()}")
 
-            ######################################################################
-            # Build Pipeline
-            ######################################################################
+                ######################################################################
+                # Build Pipeline
+                ######################################################################
 
-            pipeline = self.buildPipeline()
+                pipeline = self.buildPipeline()
 
-            ######################################################################
-            # TRAIN
-            ######################################################################
+                ######################################################################
+                # TRAIN
+                ######################################################################
 
-            with self.timer("MODEL TRAINING"):
-                model = self.trainModel(pipeline, train_df)
+                with self.timer("MODEL TRAINING"):
+                    model = self.trainModel(pipeline, train_df)
 
-            ######################################################################
-            # EVALUATE
-            ######################################################################
+                ######################################################################
+                # EVALUATE
+                ######################################################################
 
-            with self.timer("MODEL EVALUATION"):
-                self.evaluateModel(model, test_df)
+                with self.timer("MODEL EVALUATION"):
+                    self.evaluateModel(model, test_df)
 
-            print("Poisson GLM Training Complete")
+                print("Poisson GLM Training Complete")
 
 
 ##############################################################################

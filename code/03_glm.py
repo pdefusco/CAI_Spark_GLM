@@ -206,31 +206,33 @@ class FraudPoissonTrainer:
         EXPERIMENT_NAME = "03_glm"
         mlflow.set_experiment(EXPERIMENT_NAME)
 
-        with self.timer("FULL GLM PIPELINE"):
-            spark = self.createSparkConnection()
+        with mlflow.start_run():
 
-            with self.timer("LOAD DATA"):
-                df = self.loadData(spark)
-                print("Row count:", df.count())
-                df.printSchema()
+            with self.timer("FULL GLM PIPELINE"):
+                spark = self.createSparkConnection()
 
-            with self.timer("PREPARE DATA"):
-                df = self.prepareData(df)
+                with self.timer("LOAD DATA"):
+                    df = self.loadData(spark)
+                    print("Row count:", df.count())
+                    df.printSchema()
 
-            train_df, test_df = df.randomSplit([0.8, 0.2], seed=42)
+                with self.timer("PREPARE DATA"):
+                    df = self.prepareData(df)
 
-            print(f"Train: {train_df.count()}")
-            print(f"Test: {test_df.count()}")
+                train_df, test_df = df.randomSplit([0.8, 0.2], seed=42)
 
-            pipeline = self.buildPipeline()
+                print(f"Train: {train_df.count()}")
+                print(f"Test: {test_df.count()}")
 
-            with self.timer("MODEL TRAINING"):
-                model = self.trainModel(pipeline, train_df)
+                pipeline = self.buildPipeline()
 
-            with self.timer("MODEL EVALUATION"):
-                self.evaluateModel(model, test_df)
+                with self.timer("MODEL TRAINING"):
+                    model = self.trainModel(pipeline, train_df)
 
-            print("Poisson GLM Training Complete")
+                with self.timer("MODEL EVALUATION"):
+                    self.evaluateModel(model, test_df)
+
+                print("Poisson GLM Training Complete")
 
 
 ##############################################################################
