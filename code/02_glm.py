@@ -37,6 +37,7 @@
 # #  Author(s): Paul de Fusco
 #***************************************************************************/
 
+import mlflow
 import os
 from pyspark.sql import functions as F
 from pyspark.ml import Pipeline
