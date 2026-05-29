@@ -80,6 +80,7 @@ class FraudPoissonTrainer:
                 end = time.time()
                 duration = end - self_inner.start
                 print(f"[TIMER END] {name} -> {duration:.2f} seconds\n")
+                mlflow.log_param(f"Timer {name}", duration)
 
         return TimerContext()
 

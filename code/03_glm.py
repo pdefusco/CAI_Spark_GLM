@@ -77,6 +77,7 @@ class FraudPoissonTrainer:
             def __exit__(self_inner, exc_type, exc_val, exc_tb):
                 duration = time.time() - self_inner.start
                 print(f"[TIMER END] {name} -> {duration:.2f} seconds\n")
+                mlflow.log_param(f"Timer {name}", duration)
 
         return TimerContext()
 
