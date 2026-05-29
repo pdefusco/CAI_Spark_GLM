@@ -185,6 +185,10 @@ class FraudPoissonTrainer:
         print(f"MAE:  {mae}")
         print(f"R2:   {r2}")
 
+        mlflow.log_param("RMSE", rmse)
+        mlflow.log_param("MAE", mae)
+        mlflow.log_param("R2", r2)
+
         glm_model = model.stages[-1]
         print("\nGLM Coefficients")
         print(glm_model.coefficients)
@@ -196,6 +200,9 @@ class FraudPoissonTrainer:
     # Run
     ##########################################################################
     def run(self):
+
+        EXPERIMENT_NAME = "03_glm"
+        mlflow.set_experiment(EXPERIMENT_NAME)
 
         with self.timer("FULL GLM PIPELINE"):
             spark = self.createSparkConnection()
@@ -221,7 +228,7 @@ class FraudPoissonTrainer:
             with self.timer("MODEL EVALUATION"):
                 self.evaluateModel(model, test_df)
 
-            print("Training complete.")
+            print("Poisson GLM Training Complete")
 
 
 ##############################################################################

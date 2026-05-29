@@ -286,6 +286,10 @@ class FraudPoissonTrainer:
         print(f"MAE:  {mae}")
         print(f"R2:   {r2}")
 
+        mlflow.log_param("RMSE", rmse)
+        mlflow.log_param("MAE", mae)
+        mlflow.log_param("R2", r2)
+
         ######################################################################
         # Inspect GLM Model
         ######################################################################
@@ -308,6 +312,9 @@ class FraudPoissonTrainer:
     ##########################################################################
 
     def run(self):
+
+        EXPERIMENT_NAME = "02_glm"
+        mlflow.set_experiment(EXPERIMENT_NAME)
 
         with self.timer("FULL GLM PIPELINE"):
 
