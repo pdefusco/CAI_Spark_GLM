@@ -4,8 +4,12 @@
 
 Script 1:
 Poisson GLM Training Complete
-[TIMER END] FULL GLM PIPELINE -> 1124.01 seconds
+[TIMER END] FULL GLM PIPELINE -> 979.82 seconds
 
 Script 2:
 Poisson GLM Training Complete
-[TIMER END] FULL GLM PIPELINE -> 303.14 seconds
+[TIMER END] FULL GLM PIPELINE -> 135.17 seconds
+
+Script 3:
+Training complete.
+[TIMER END] FULL GLM PIPELINE -> 210.67 seconds
