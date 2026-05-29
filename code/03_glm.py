@@ -154,7 +154,7 @@ class FraudPoissonTrainer:
         hasher = FeatureHasher(
             inputCols=numeric_features + categorical_features,
             outputCol="hashed_features",
-            numFeatures=2**18
+            numFeatures=2**12
         )
 
         ######################################################################
