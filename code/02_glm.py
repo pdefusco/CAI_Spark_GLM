@@ -92,8 +92,11 @@ class FraudPoissonTrainer:
 
         from pyspark import SparkContext
 
+        SHUFFLE_PARTITIONS = os.environ["SHUFFLE_PARTITIONS"]
         SparkContext.setSystemProperty("spark.executor.cores", "4")
         SparkContext.setSystemProperty("spark.executor.memory", "16g")
+        SparkContext.setSystemProperty("spark.sql.shuffle.partitions", SHUFFLE_PARTITIONS)
+        mlflow.log_param(f"shuffle.partitions", SHUFFLE_PARTITIONS)
 
         conn = cmldata.get_connection(self.connection_name)
         spark = conn.get_spark_session()
