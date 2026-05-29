@@ -85,8 +85,8 @@ class FraudPoissonTrainer:
     def createSparkConnection(self):
         from pyspark import SparkContext
 
-        SparkContext.setSystemProperty("spark.executor.cores", "2")
-        SparkContext.setSystemProperty("spark.executor.memory", "4g")
+        SparkContext.setSystemProperty("spark.executor.cores", "4")
+        SparkContext.setSystemProperty("spark.executor.memory", "8g")
 
         conn = cmldata.get_connection(self.connection_name)
         return conn.get_spark_session()
