@@ -38,6 +38,7 @@
 #***************************************************************************/
 
 import os
+import time
 from pyspark.sql import functions as F
 from pyspark.ml import Pipeline
 from pyspark.ml.feature import (
@@ -59,97 +60,72 @@ class FraudPoissonTrainer:
         self.connection_name = connection_name
 
     ##########################################################################
+    # Timer Utility
+    ##########################################################################
+    def timer(self, name):
+        """
+        Context manager for timing code blocks
+        """
+
+        class TimerContext:
+            def __enter__(self_inner):
+                self_inner.start = time.time()
+                print(f"\n[TIMER START] {name}")
+                return self_inner
+
+            def __exit__(self_inner, exc_type, exc_val, exc_tb):
+                duration = time.time() - self_inner.start
+                print(f"[TIMER END] {name} -> {duration:.2f} seconds\n")
+
+        return TimerContext()
+
+    ##########################################################################
     # Spark Session
     ##########################################################################
-
     def createSparkConnection(self):
-
         from pyspark import SparkContext
 
         SparkContext.setSystemProperty("spark.executor.cores", "2")
         SparkContext.setSystemProperty("spark.executor.memory", "4g")
 
         conn = cmldata.get_connection(self.connection_name)
-        spark = conn.get_spark_session()
-
-        return spark
+        return conn.get_spark_session()
 
     ##########################################################################
     # Load Data
     ##########################################################################
-
     def loadData(self, spark):
-
         table_name = f"{self.dbname}.transactions_{self.username}"
         print(f"Loading: {table_name}")
-
         return spark.read.format("iceberg").load(table_name)
 
     ##########################################################################
     # Prepare Data
     ##########################################################################
-
     def prepareData(self, df):
-
         df = df.dropna()
-
-        df = df.withColumn(
-            "label",
-            F.col("fraud_trx").cast("double")
-        )
-
+        df = df.withColumn("label", F.col("fraud_trx").cast("double"))
         df = df.filter(F.col("label") >= 0)
-
         return df
 
     ##########################################################################
-    # Build Pipeline (Feature Hashing Version)
+    # Build Pipeline
     ##########################################################################
-
     def buildPipeline(self):
 
-        ######################################################################
-        # Numeric Features
-        ######################################################################
-
         numeric_features = [
-            "age",
-            "credit_card_balance",
-            "bank_account_balance",
-            "mortgage_balance",
-            "sec_bank_account_balance",
-            "savings_account_balance",
-            "sec_savings_account_balance",
-            "total_est_nworth",
-            "primary_loan_balance",
-            "secondary_loan_balance",
-            "uni_loan_balance",
-            "longitude",
-            "latitude",
-            "transaction_amount",
-            "customer_score"
+            "age","credit_card_balance","bank_account_balance","mortgage_balance",
+            "sec_bank_account_balance","savings_account_balance",
+            "sec_savings_account_balance","total_est_nworth",
+            "primary_loan_balance","secondary_loan_balance","uni_loan_balance",
+            "longitude","latitude","transaction_amount","customer_score"
         ]
-
-        ######################################################################
-        # Categorical Features (HIGH CARDINALITY SAFE)
-        ######################################################################
 
         categorical_features = [
-            "customer_segment",
-            "account_type",
-            "transaction_type",
-            "merchant_category",
-            "state",
-            "employment_status",
-            "device_type",
-            "payment_channel",
-            "risk_region",
-            "card_network"
+            "customer_segment","account_type","transaction_type",
+            "merchant_category","state","employment_status",
+            "device_type","payment_channel","risk_region","card_network"
         ]
-
-        ######################################################################
-        # Feature Hasher (replaces indexing + OHE)
-        ######################################################################
 
         hasher = FeatureHasher(
             inputCols=numeric_features + categorical_features,
@@ -157,20 +133,12 @@ class FraudPoissonTrainer:
             numFeatures=2**12
         )
 
-        ######################################################################
-        # Scaling (IMPORTANT: no mean centering for sparse vectors)
-        ######################################################################
-
         scaler = StandardScaler(
             inputCol="hashed_features",
             outputCol="features",
             withStd=True,
             withMean=False
         )
-
-        ######################################################################
-        # Poisson GLM
-        ######################################################################
 
         glm = GeneralizedLinearRegression(
             family="poisson",
@@ -183,45 +151,34 @@ class FraudPoissonTrainer:
             tol=1e-6
         )
 
-        ######################################################################
-        # Pipeline
-        ######################################################################
-
         return Pipeline(stages=[hasher, scaler, glm])
 
     ##########################################################################
     # Train
     ##########################################################################
-
     def trainModel(self, pipeline, train_df):
         return pipeline.fit(train_df)
 
     ##########################################################################
     # Evaluate
     ##########################################################################
-
     def evaluateModel(self, model, test_df):
 
         predictions = model.transform(test_df)
 
+        print("Predictions sample")
         predictions.select("label", "prediction").show(20, truncate=False)
 
         rmse = RegressionEvaluator(
-            labelCol="label",
-            predictionCol="prediction",
-            metricName="rmse"
+            labelCol="label", predictionCol="prediction", metricName="rmse"
         ).evaluate(predictions)
 
         mae = RegressionEvaluator(
-            labelCol="label",
-            predictionCol="prediction",
-            metricName="mae"
+            labelCol="label", predictionCol="prediction", metricName="mae"
         ).evaluate(predictions)
 
         r2 = RegressionEvaluator(
-            labelCol="label",
-            predictionCol="prediction",
-            metricName="r2"
+            labelCol="label", predictionCol="prediction", metricName="r2"
         ).evaluate(predictions)
 
         print(f"RMSE: {rmse}")
@@ -229,7 +186,6 @@ class FraudPoissonTrainer:
         print(f"R2:   {r2}")
 
         glm_model = model.stages[-1]
-
         print("\nGLM Coefficients")
         print(glm_model.coefficients)
 
@@ -239,34 +195,37 @@ class FraudPoissonTrainer:
     ##########################################################################
     # Run
     ##########################################################################
-
     def run(self):
 
-        spark = self.createSparkConnection()
+        with self.timer("FULL GLM PIPELINE"):
+            spark = self.createSparkConnection()
 
-        df = self.loadData(spark)
+            with self.timer("LOAD DATA"):
+                df = self.loadData(spark)
+                print("Row count:", df.count())
+                df.printSchema()
 
-        print("Dataset count:", df.count())
-        df.printSchema()
+            with self.timer("PREPARE DATA"):
+                df = self.prepareData(df)
 
-        df = self.prepareData(df)
+            train_df, test_df = df.randomSplit([0.8, 0.2], seed=42)
 
-        train_df, test_df = df.randomSplit([0.8, 0.2], seed=42)
+            print(f"Train: {train_df.count()}")
+            print(f"Test: {test_df.count()}")
 
-        print("Train:", train_df.count())
-        print("Test:", test_df.count())
+            pipeline = self.buildPipeline()
 
-        pipeline = self.buildPipeline()
+            with self.timer("MODEL TRAINING"):
+                model = self.trainModel(pipeline, train_df)
 
-        model = self.trainModel(pipeline, train_df)
+            with self.timer("MODEL EVALUATION"):
+                self.evaluateModel(model, test_df)
 
-        self.evaluateModel(model, test_df)
-
-        print("Training complete.")
+            print("Training complete.")
 
 
 ##############################################################################
-# Main
+# MAIN
 ##############################################################################
 
 def main():
